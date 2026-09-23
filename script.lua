@@ -2,26 +2,28 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
+local camera = Workspace.CurrentCamera
 
--- State tracking
-local highlightedPlayer: Player? = nil
-local highlightEffect: Highlight? = nil
+-- State tracking for multi-ESP and Spectating
+local highlightedPlayers = {} -- Table to store multiple highlighted players
+local activeHighlights = {} -- Table to store active Highlight instances
+local spectatingPlayer: Player? = nil
 
 -- Create ScreenGui
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "ModernTeleportMenu"
+screenGui.Name = "AdvancedTeleportMenu"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Create Main Frame (Modern Dark Theme)
+-- Create Main Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 280, 0, 380)
-mainFrame.Position = UDim2.new(0.5, -140, 0.5, -190)
+mainFrame.Size = UDim2.new(0, 320, 0, 400)
+mainFrame.Position = UDim2.new(0.5, -160, 0.5, -200)
 mainFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
 mainFrame.BorderSizePixel = 0
 mainFrame.Visible = false
@@ -46,9 +48,9 @@ local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -20, 1, 0)
 titleLabel.Position = UDim2.new(0, 16, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "Player Manager"
+titleLabel.Text = "Advanced Player Manager"
 titleLabel.TextColor3 = Color3.fromRGB(240, 240, 245)
-titleLabel.TextSize = 18
+titleLabel.TextSize = 16
 titleLabel.Font = Enum.Font.GothamBold
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = header
@@ -56,7 +58,7 @@ titleLabel.Parent = header
 -- Tab Container Frame
 local tabContainer = Instance.new("Frame")
 tabContainer.Size = UDim2.new(1, -16, 0, 32)
-tabContainer.Position = UDim2.new(0, 8, 0, 50)
+tabContainer.Position = UDim2.new(0, 8, 0, 48)
 tabContainer.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
 tabContainer.BorderSizePixel = 0
 tabContainer.Parent = mainFrame
@@ -129,7 +131,7 @@ creditsPage.Parent = pagesContainer
 local creditsText = Instance.new("TextLabel")
 creditsText.Size = UDim2.new(1, 0, 1, 0)
 creditsText.BackgroundTransparency = 1
-creditsText.Text = "UI & Script developed by:\n\n• C4N0Fz\n• @kp3g\n\nDiscord Credits & Special Thanks!"
+creditsText.Text = "Advanced UI & Script developed by:\n\n• C4N0Fz\n• @kp3g\n\nDiscord Credits & Special Thanks!"
 creditsText.TextColor3 = Color3.fromRGB(200, 200, 210)
 creditsText.TextSize = 14
 creditsText.Font = Enum.Font.GothamMedium
@@ -157,25 +159,37 @@ creditsTabBtn.MouseButton1Click:Connect(function()
 	playersTabBtn.TextColor3 = Color3.fromRGB(150, 150, 160)
 end)
 
--- Highlight Management
-local function setHighlight(player: Player?)
-	if highlightEffect then
-		highlightEffect:Destroy()
-		highlightEffect = nil
+-- Multi-ESP Management
+local function updateHighlights()
+	-- Clean up old highlights
+	for _, highlight in pairs(activeHighlights) do
+		highlight:Destroy()
 	end
-	
-	highlightedPlayer = player
-	
-	if player and player.Character then
-		local highlight = Instance.new("Highlight")
-		highlight.Name = "PlayerHighlight"
-		highlight.Adornee = player.Character
-		highlight.FillColor = Color3.fromRGB(0, 162, 255)
-		highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-		highlight.FillTransparency = 0.5
-		highlight.Parent = player.Character
-		highlightEffect = highlight
+	activeHighlights = {}
+
+	-- Apply highlights to all currently selected players
+	for _, player in ipairs(highlightedPlayers) do
+		if player and player.Character then
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "MultiPlayerHighlight"
+			highlight.Adornee = player.Character
+			highlight.FillColor = Color3.fromRGB(0, 162, 255)
+			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+			highlight.FillTransparency = 0.5
+			highlight.Parent = player.Character
+			activeHighlights[player] = highlight
+		end
 	end
+end
+
+local function toggleHighlight(player: Player)
+	local index = table.find(highlightedPlayers, player)
+	if index then
+		table.remove(highlightedPlayers, index)
+	else
+		table.insert(highlightedPlayers, player)
+	end
+	updateHighlights()
 end
 
 -- Update Player List UI
@@ -199,44 +213,64 @@ local function updatePlayerList()
 			itemCorner.Parent = itemFrame
 
 			local nameLabel = Instance.new("TextLabel")
-			nameLabel.Size = UDim2.new(1, -130, 1, 0)
-			nameLabel.Position = UDim2.new(0, 12, 0, 0)
+			nameLabel.Size = UDim2.new(1, -165, 1, 0)
+			nameLabel.Position = UDim2.new(0, 10, 0, 0)
 			nameLabel.BackgroundTransparency = 1
 			nameLabel.Text = player.Name
 			nameLabel.TextColor3 = Color3.fromRGB(220, 220, 225)
-			nameLabel.TextSize = 14
+			nameLabel.TextSize = 13
 			nameLabel.Font = Enum.Font.GothamMedium
 			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 			nameLabel.Parent = itemFrame
 
+			-- Teleport Button (TP)
 			local tpButton = Instance.new("TextButton")
-			tpButton.Size = UDim2.new(0, 55, 0, 28)
-			tpButton.Position = UDim2.new(1, -125, 0.5, -14)
+			tpButton.Size = UDim2.new(0, 42, 0, 26)
+			tpButton.Position = UDim2.new(1, -155, 0.5, -13)
 			tpButton.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
 			tpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-			tpButton.TextSize = 12
+			tpButton.TextSize = 11
 			tpButton.Font = Enum.Font.GothamBold
 			tpButton.Text = "TP"
 			tpButton.Parent = itemFrame
 
 			local tpCorner = Instance.new("UICorner")
-			tpCorner.CornerRadius = UDim.new(0, 6)
+			tpCorner.CornerRadius = UDim.new(0, 5)
 			tpCorner.Parent = tpButton
 
+			-- Multi-ESP Button (ESP)
 			local hlButton = Instance.new("TextButton")
-			hlButton.Size = UDim2.new(0, 55, 0, 28)
-			hlButton.Position = UDim2.new(1, -63, 0.5, -14)
-			hlButton.BackgroundColor3 = highlightedPlayer == player and Color3.fromRGB(0, 162, 255) or Color3.fromRGB(50, 50, 60)
+			hlButton.Size = UDim2.new(0, 42, 0, 26)
+			hlButton.Position = UDim2.new(1, -109, 0.5, -13)
+			local isHighlighted = table.find(highlightedPlayers, player) ~= nil
+			hlButton.BackgroundColor3 = isHighlighted and Color3.fromRGB(0, 162, 255) or Color3.fromRGB(50, 50, 60)
 			hlButton.TextColor3 = Color3.fromRGB(200, 200, 210)
-			hlButton.TextSize = 12
+			hlButton.TextSize = 11
 			hlButton.Font = Enum.Font.GothamBold
 			hlButton.Text = "ESP"
 			hlButton.Parent = itemFrame
 
 			local hlCorner = Instance.new("UICorner")
-			hlCorner.CornerRadius = UDim.new(0, 6)
+			hlCorner.CornerRadius = UDim.new(0, 5)
 			hlCorner.Parent = hlButton
 
+			-- Spectate Button (SPEC)
+			local specButton = Instance.new("TextButton")
+			specButton.Size = UDim2.new(0, 48, 0, 26)
+			specButton.Position = UDim2.new(1, -63, 0.5, -13)
+			local isSpectating = spectatingPlayer == player
+			specButton.BackgroundColor3 = isSpectating and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(50, 50, 60)
+			specButton.TextColor3 = Color3.fromRGB(200, 200, 210)
+			specButton.TextSize = 11
+			specButton.Font = Enum.Font.GothamBold
+			specButton.Text = isSpectating and "UNSPEC" or "SPEC"
+			specButton.Parent = itemFrame
+
+			local specCorner = Instance.new("UICorner")
+			specCorner.CornerRadius = UDim.new(0, 5)
+			specCorner.Parent = specButton
+
+			-- Actions
 			tpButton.MouseButton1Click:Connect(function()
 				local targetChar = player.Character
 				local localChar = localPlayer.Character
@@ -248,25 +282,48 @@ local function updatePlayerList()
 			end)
 
 			hlButton.MouseButton1Click:Connect(function()
-				if highlightedPlayer == player then
-					setHighlight(nil)
-					hlButton.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+				toggleHighlight(player)
+				updatePlayerList()
+			end)
+
+			specButton.MouseButton1Click:Connect(function()
+				if spectatingPlayer == player then
+					spectatingPlayer = nil
+					camera.CameraSubject = localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid")
 				else
-					setHighlight(player)
-					hlButton.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
-					updatePlayerList()
+					spectatingPlayer = player
+					if player.Character and player.Character:FindFirstChild("Humanoid") then
+						camera.CameraSubject = player.Character.Humanoid
+					end
 				end
+				updatePlayerList()
 			end)
 		end
 	end
 end
 
 Players.PlayerAdded:Connect(updatePlayerList)
-Players.PlayerRemoving:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(function(player)
+	local index = table.find(highlightedPlayers, player)
+	if index then
+		table.remove(highlightedPlayers, index)
+	end
+	if spectatingPlayer == player then
+		spectatingPlayer = nil
+		camera.CameraSubject = localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid")
+	end
+	updatePlayerList()
+end)
 
+-- Continuous Render Loop for tracking highlights & spectator camera
 RunService.RenderStepped:Connect(function()
-	if highlightedPlayer and not highlightEffect and highlightedPlayer.Character then
-		setHighlight(highlightedPlayer)
+	updateHighlights()
+	
+	if spectatingPlayer and spectatingPlayer.Character then
+		local humanoid = spectatingPlayer.Character:FindFirstChild("Humanoid")
+		if humanoid and camera.CameraSubject ~= humanoid then
+			camera.CameraSubject = humanoid
+		end
 	end
 end)
 
